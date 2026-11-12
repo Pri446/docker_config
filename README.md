@@ -1,1 +1,1 @@
-# docker_config
+# docker-template
