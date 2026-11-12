@@ -1,0 +1,113 @@
+networks:
+  app_shared_network:
+    external: true
+    name: ${SHARED_WEB_NETWORK:-${PROJECT_NAME:?PROJECT_NAME must be set}_shared-web}
+
+  app_database_network:
+    external: true
+    name: ${POSTGRES_NETWORK:-${PROJECT_NAME:?PROJECT_NAME must be set}_postgres14_backend}
+
+services:
+  site:
+    build:
+      context: ./dockerfiles
+      dockerfile: nginx.dockerfile
+      args:
+        UID: ${UID:-1000}
+        GID: ${GID:-1000}
+        PROJECT_NAME: ${PROJECT_NAME:?PROJECT_NAME must be set}
+    container_name: nginx-${PROJECT_NAME:?PROJECT_NAME must be set}
+    tty: true
+    volumes:
+      - ${APP_SOURCE_PATH:?APP_SOURCE_PATH must be set}:/var/www/html/${PROJECT_NAME}:delegated
+    depends_on:
+      - php
+    networks:
+      - app_shared_network
+
+  php:
+    build:
+      context: ./dockerfiles
+      dockerfile: php.dockerfile
+      args:
+        UID: ${UID:-1000}
+        GID: ${GID:-1000}
+        PROJECT_NAME: ${PROJECT_NAME:?PROJECT_NAME must be set}
+    container_name: php-${PROJECT_NAME:?PROJECT_NAME must be set}
+    volumes:
+      - ${APP_SOURCE_PATH:?APP_SOURCE_PATH must be set}:/var/www/html/${PROJECT_NAME}:delegated
+    networks:
+      - app_shared_network
+      - app_database_network
+
+  composer:
+    build:
+      context: ./dockerfiles
+      dockerfile: composer.dockerfile
+      args:
+        UID: ${UID:-1000}
+        GID: ${GID:-1000}
+        PROJECT_NAME: ${PROJECT_NAME:?PROJECT_NAME must be set}
+    container_name: composer-${PROJECT_NAME:?PROJECT_NAME must be set}
+    volumes:
+      - ${APP_SOURCE_PATH:?APP_SOURCE_PATH must be set}:/var/www/html/${PROJECT_NAME}
+    working_dir: /var/www/html/${PROJECT_NAME}
+    depends_on:
+      - php
+    user: laravel
+    entrypoint:
+      - composer
+    networks:
+      - app_shared_network
+
+  npm:
+    image: node:22-bookworm-slim
+    container_name: npm-${PROJECT_NAME:?PROJECT_NAME must be set}
+    volumes:
+      - ${APP_SOURCE_PATH:?APP_SOURCE_PATH must be set}:/var/www/html/${PROJECT_NAME}
+    ports:
+      - "3000:3000"
+      - "3001:3001"
+    working_dir: /var/www/html/${PROJECT_NAME}
+    entrypoint:
+      - npm
+    networks:
+      - app_shared_network
+
+  artisan:
+    build:
+      context: ./dockerfiles
+      dockerfile: php.dockerfile
+      args:
+        UID: ${UID:-1000}
+        GID: ${GID:-1000}
+        PROJECT_NAME: ${PROJECT_NAME:?PROJECT_NAME must be set}
+    container_name: artisan-${PROJECT_NAME:?PROJECT_NAME must be set}
+    volumes:
+      - ${APP_SOURCE_PATH:?APP_SOURCE_PATH must be set}:/var/www/html/${PROJECT_NAME}:delegated
+    working_dir: /var/www/html/${PROJECT_NAME}
+    entrypoint:
+      - php
+      - /var/www/html/${PROJECT_NAME}/artisan
+    networks:
+      - app_shared_network
+
+  queue-worker:
+    build:
+      context: ./dockerfiles
+      dockerfile: php.dockerfile
+      args:
+        UID: ${UID:-1000}
+        GID: ${GID:-1000}
+        PROJECT_NAME: ${PROJECT_NAME:?PROJECT_NAME must be set}
+    container_name: queue-worker-${PROJECT_NAME:?PROJECT_NAME must be set}
+    command: php artisan queue:work --once --sleep=3 --tries=3
+    volumes:
+      - ${APP_SOURCE_PATH:?APP_SOURCE_PATH must be set}:/var/www/html/${PROJECT_NAME}:delegated
+    working_dir: /var/www/html/${PROJECT_NAME}
+    restart: "no"
+    depends_on:
+      - php
+    networks:
+      - app_shared_network
+      - app_database_network
